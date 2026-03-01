@@ -1,18 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Dropzone } from "@/components/Dropzone";
 import { Canvas } from "@/components/Canvas";
 import { Preview } from "@/components/Preview";
 import { processImageToCode } from "./actions";
-import { Sparkles, Zap, Shield, Cpu, Upload, Pencil } from "lucide-react";
+import { Sparkles, Zap, Shield, Cpu, Upload, Pencil, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
-export default function Home() {
+function HomeContent() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inputMode, setInputMode] = useState<"upload" | "draw">("upload");
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const sharedCode = searchParams.get("code");
+    if (sharedCode) {
+      setCode(sharedCode);
+    }
+  }, [searchParams]);
 
   const handleProcess = async (base64: string) => {
     if (!base64) {
@@ -74,9 +84,18 @@ export default function Home() {
         {/* Sidebar / Upload */}
         <div className="lg:col-span-4 space-y-6">
           <div className="glass-card flex flex-col gap-6 h-fit">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-lg font-medium text-white/90">Input Interface</h2>
-              <p className="text-xs text-white/40">Capture your vision directly</p>
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-1">
+                <h2 className="text-lg font-medium text-white/90">Input Interface</h2>
+                <p className="text-xs text-white/40">Capture your vision directly</p>
+              </div>
+              <Link
+                href="/draw"
+                className="p-2 hover:bg-white/10 rounded-xl transition-all border border-white/5 group"
+                title="Open Dedicated Studio"
+              >
+                <Maximize2 className="w-4 h-4 text-white/40 group-hover:text-blue-400" />
+              </Link>
             </div>
 
             {/* Mode Toggle */}
@@ -157,5 +176,13 @@ export default function Home() {
           Built with <span className="text-blue-500/40">Pure Efficiency</span></p>
       </footer>
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black" />}>
+      <HomeContent />
+    </Suspense>
   );
 }
