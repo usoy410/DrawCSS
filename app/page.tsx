@@ -2,18 +2,21 @@
 
 import { useState } from "react";
 import { Dropzone } from "@/components/Dropzone";
+import { Canvas } from "@/components/Canvas";
 import { Preview } from "@/components/Preview";
 import { processImageToCode } from "./actions";
-import { Sparkles, Zap, Shield, Cpu } from "lucide-react";
+import { Sparkles, Zap, Shield, Cpu, Upload, Pencil } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function Home() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inputMode, setInputMode] = useState<"upload" | "draw">("upload");
 
-  const handleUpload = async (base64: string) => {
+  const handleProcess = async (base64: string) => {
     if (!base64) {
-      setCode("");
+      if (inputMode === "upload") setCode("");
       return;
     }
 
@@ -72,11 +75,41 @@ export default function Home() {
         <div className="lg:col-span-4 space-y-6">
           <div className="glass-card flex flex-col gap-6 h-fit">
             <div className="flex flex-col gap-1">
-              <h2 className="text-lg font-medium text-white/90">Input Sketch</h2>
-              <p className="text-xs text-white/40">Upload a whiteboard photo or UI drawing</p>
+              <h2 className="text-lg font-medium text-white/90">Input Interface</h2>
+              <p className="text-xs text-white/40">Capture your vision directly</p>
             </div>
 
-            <Dropzone onImageUpload={handleUpload} className="w-full" />
+            {/* Mode Toggle */}
+            <div className="flex p-1 bg-black/40 rounded-xl border border-white/5">
+              <button
+                onClick={() => { setInputMode("upload"); setCode(""); setError(null); }}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-all",
+                  inputMode === "upload" ? "bg-white/10 text-white shadow-lg" : "text-white/40 hover:text-white/60"
+                )}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                Upload Image
+              </button>
+              <button
+                onClick={() => { setInputMode("draw"); setCode(""); setError(null); }}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-all",
+                  inputMode === "draw" ? "bg-white/10 text-white shadow-lg" : "text-white/40 hover:text-white/60"
+                )}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Draw Sketch
+              </button>
+            </div>
+
+            <div className="min-h-[320px]">
+              {inputMode === "upload" ? (
+                <Dropzone onImageUpload={handleProcess} className="w-full" />
+              ) : (
+                <Canvas onSubmit={handleProcess} loading={loading} className="w-full" />
+              )}
+            </div>
 
             {error && (
               <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs text-center animate-in fade-in slide-in-from-top-1">
@@ -88,7 +121,7 @@ export default function Home() {
               <h3 className="text-[10px] uppercase font-bold tracking-widest text-white/30">Guidelines</h3>
               <ul className="space-y-3">
                 {[
-                  "Clear high-contrast sketches work best",
+                  inputMode === "upload" ? "Clear high-contrast sketches work best" : "Draw clearly with visible boundaries",
                   "Label components (e.g., 'Button', 'Hero')",
                   "Vision engine understands layout hierarchy",
                   "Standard Tailwind classes will be used"
@@ -110,6 +143,7 @@ export default function Home() {
             </p>
           </div>
         </div>
+
 
         {/* Main Content / Preview */}
         <div className="lg:col-span-8 flex flex-col h-full">
