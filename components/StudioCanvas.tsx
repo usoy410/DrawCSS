@@ -210,14 +210,35 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
         setupCanvas();
     }, [canvasSize.width, canvasSize.height]);
 
+    const handleCommitText = useCallback(() => {
+        if (!textInput?.value.trim()) {
+            setTextInput(null);
+            return;
+        }
+
+        const canvas = canvasRef.current;
+        const offscreen = offscreenCanvasRef.current;
+        if (!canvas || !offscreen) return;
+
+        const offCtx = offscreen.getContext("2d");
+        if (offCtx) {
+            offCtx.fillStyle = "white";
+            offCtx.font = "20px Inter, sans-serif";
+            offCtx.fillText(textInput.value, textInput.x, textInput.y);
+            saveToHistory();
+            renderCanvas();
+        }
+        setTextInput(null);
+    }, [textInput, saveToHistory, renderCanvas]);
+
     // Redraw when selection or tool changes
     useEffect(() => {
         renderCanvas();
-        // Close text input if tool changed away from text
-        if (activeTool !== "text") {
-            setTextInput(null);
+        // Auto-commit text if tool changed away from text
+        if (activeTool !== "text" && textInput?.open) {
+            handleCommitText();
         }
-    }, [selectedId, activeTool, renderCanvas]);
+    }, [selectedId, activeTool, renderCanvas, textInput, handleCommitText]);
 
     const undo = () => {
         if (historyStep <= 0) return;
@@ -326,11 +347,10 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
         }
 
         if (activeTool === "text" || textInput?.open) {
-            if (!textInput?.open) {
-                setTextInput({ open: true, x, y, value: "" });
+            if (textInput?.open) {
+                handleCommitText();
             } else {
-                // If clicking outside the input area while it's open, close it
-                setTextInput(null);
+                setTextInput({ open: true, x, y, value: "" });
             }
             return;
         }
@@ -723,30 +743,14 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
                                     onChange={(e) => setTextInput({ ...textInput, value: e.target.value })}
                                     onKeyDown={(e) => {
                                         if (e.key === "Enter") {
-                                            const ctx = canvasRef.current?.getContext("2d");
-                                            if (ctx && textInput.value) {
-                                                ctx.fillStyle = "white";
-                                                ctx.font = "20px Inter, sans-serif";
-                                                ctx.fillText(textInput.value, textInput.x, textInput.y);
-                                                saveToHistory();
-                                            }
-                                            setTextInput(null);
+                                            handleCommitText();
                                         }
                                         if (e.key === "Escape") setTextInput(null);
                                     }}
                                     className="bg-transparent border border-white/40 rounded-md px-3 py-1.5 text-xs text-white focus:outline-none focus:border-white min-w-[120px]"
                                     placeholder="Type element name..."
                                 />
-                                <button onClick={() => {
-                                    const ctx = canvasRef.current?.getContext("2d");
-                                    if (ctx && textInput.value) {
-                                        ctx.fillStyle = "white";
-                                        ctx.font = "20px Inter, sans-serif";
-                                        ctx.fillText(textInput.value, textInput.x, textInput.y);
-                                        saveToHistory();
-                                    }
-                                    setTextInput(null);
-                                }} className="p-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md text-white"><CornerDownLeft className="w-3 h-3" /></button>
+                                <button onClick={handleCommitText} className="p-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md text-white"><CornerDownLeft className="w-3 h-3" /></button>
                             </div>
                         )}
                     </div>
