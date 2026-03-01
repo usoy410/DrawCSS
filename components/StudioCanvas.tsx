@@ -17,7 +17,8 @@ import {
     Square,
     Circle as CircleIcon,
     Minus,
-    Shapes
+    Shapes,
+    MousePointer2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -27,11 +28,29 @@ interface StudioCanvasProps {
     loading?: boolean;
 }
 
-type Tool = "pencil" | "eraser" | "text" | "shape";
+type Tool = "pencil" | "eraser" | "text" | "shape" | "select";
 type ShapeType = "rect" | "circle" | "line";
+
+interface Shape {
+    id: string;
+    type: ShapeType;
+    x: number;
+    y: number;
+    width?: number;
+    height?: number;
+    radius?: number;
+    x2?: number; // for line
+    y2?: number; // for line
+}
+
+interface HistoryStep {
+    raster: string;
+    shapes: Shape[];
+}
 
 export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const [activeTool, setActiveTool] = useState<Tool>("pencil");
     const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 800 });
     const [isResizing, setIsResizing] = useState(false);
@@ -45,16 +64,93 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
     const [shapeStartPos, setShapeStartPos] = useState<{ x: number, y: number } | null>(null);
     const [previewImageData, setPreviewImageData] = useState<ImageData | null>(null);
 
+    const [shapes, setShapes] = useState<Shape[]>([]);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [dragOffset, setDragOffset] = useState<{ x: number, y: number } | null>(null);
+    const gridSize = 20;
+
     const [isDrawing, setIsDrawing] = useState(false);
     const [isPanning, setIsPanning] = useState(false);
     const [isSpacePressed, setIsSpacePressed] = useState(false);
-    const [history, setHistory] = useState<string[]>([]);
+    const [history, setHistory] = useState<HistoryStep[]>([]);
     const [historyStep, setHistoryStep] = useState(-1);
 
-    // Handle keyboard for panning
+    const snap = (val: number) => Math.round(val / gridSize) * gridSize;
+
+    const renderCanvas = useCallback((currentShapes?: Shape[]) => {
+        const canvas = canvasRef.current;
+        const offscreen = offscreenCanvasRef.current;
+        const ctx = canvas?.getContext("2d");
+        if (!ctx || !canvas || !offscreen) return;
+
+        // Clear and draw offscreen (raster)
+        ctx.fillStyle = "#0a0a0a";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(offscreen, 0, 0);
+
+        const targetShapes = currentShapes || shapes;
+        // Draw shapes
+        targetShapes.forEach(shape => {
+            ctx.strokeStyle = selectedId === shape.id ? "#3b82f6" : "white";
+            ctx.lineWidth = selectedId === shape.id ? brushSize + 2 : brushSize;
+            ctx.fillStyle = selectedId === shape.id ? "rgba(59, 130, 246, 0.2)" : "rgba(255, 255, 255, 0.1)";
+
+            if (shape.type === "rect") {
+                if (shape.width !== undefined && shape.height !== undefined) {
+                    ctx.strokeRect(shape.x, shape.y, shape.width, shape.height);
+                    ctx.fillRect(shape.x, shape.y, shape.width, shape.height);
+                }
+            } else if (shape.type === "circle") {
+                if (shape.radius !== undefined) {
+                    ctx.beginPath();
+                    ctx.arc(shape.x, shape.y, shape.radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.fill();
+                }
+            } else if (shape.type === "line") {
+                if (shape.x2 !== undefined && shape.y2 !== undefined) {
+                    ctx.beginPath();
+                    ctx.moveTo(shape.x, shape.y);
+                    ctx.lineTo(shape.x2, shape.y2);
+                    ctx.stroke();
+                }
+            }
+        });
+    }, [shapes, selectedId, brushSize]);
+
+    const saveToHistory = useCallback((currentShapes?: Shape[]) => {
+        const canvas = canvasRef.current;
+        const offscreen = offscreenCanvasRef.current;
+        if (!canvas || !offscreen) return;
+
+        const newStep: HistoryStep = {
+            raster: offscreen.toDataURL(),
+            shapes: [...(currentShapes || shapes)]
+        };
+        const newHistory = history.slice(0, historyStep + 1);
+        newHistory.push(newStep);
+        setHistory(newHistory);
+        setHistoryStep(newHistory.length - 1);
+    }, [history, historyStep, shapes]);
+
+    const deleteSelected = useCallback(() => {
+        if (!selectedId) return;
+        const newShapes = shapes.filter(s => s.id !== selectedId);
+        setShapes(newShapes);
+        setSelectedId(null);
+        saveToHistory(newShapes);
+        renderCanvas(newShapes);
+    }, [selectedId, shapes, saveToHistory, renderCanvas]);
+
+    // Handle keyboard for panning and deletion
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.code === "Space") setIsSpacePressed(true);
+            if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
+                if (!textInput?.open) {
+                    deleteSelected();
+                }
+            }
         };
         const handleKeyUp = (e: KeyboardEvent) => {
             if (e.code === "Space") setIsSpacePressed(false);
@@ -65,9 +161,9 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
             window.removeEventListener("keydown", handleKeyDown);
             window.removeEventListener("keyup", handleKeyUp);
         };
-    }, []);
+    }, [selectedId, textInput, deleteSelected]);
 
-    // Initialize and handle orientation
+    // Initialize and handle resize
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -75,24 +171,32 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
         if (!ctx) return;
 
         const setupCanvas = () => {
-            const parent = canvas.parentElement;
-            if (!parent) return;
+            if (!offscreenCanvasRef.current) {
+                offscreenCanvasRef.current = document.createElement("canvas");
+            }
+            const offscreen = offscreenCanvasRef.current;
+            offscreen.width = canvasSize.width;
+            offscreen.height = canvasSize.height;
 
-            // Save content before resize
-            const currentContent = canvas.toDataURL();
+            const offCtx = offscreen.getContext("2d");
+            if (offCtx) {
+                offCtx.fillStyle = "#0a0a0a";
+                offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
+            }
 
             canvas.width = canvasSize.width;
             canvas.height = canvasSize.height;
 
-            // Initial state (black bg)
             ctx.fillStyle = "#0a0a0a";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Restore content if any
             if (historyStep >= 0) {
                 const img = new Image();
-                img.onload = () => ctx.drawImage(img, 0, 0);
-                img.src = currentContent;
+                img.onload = () => {
+                    ctx.drawImage(img, 0, 0);
+                    if (offCtx) offCtx.drawImage(img, 0, 0);
+                };
+                img.src = history[historyStep].raster;
             }
 
             ctx.strokeStyle = "white";
@@ -105,60 +209,68 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
         setupCanvas();
     }, [canvasSize.width, canvasSize.height]);
 
-    const saveToHistory = useCallback(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const newStep = canvas.toDataURL();
-        const newHistory = history.slice(0, historyStep + 1);
-        newHistory.push(newStep);
-        setHistory(newHistory);
-        setHistoryStep(newHistory.length - 1);
-    }, [history, historyStep]);
+    // Redraw when selection or tool changes
+    useEffect(() => {
+        renderCanvas();
+        // Close text input if tool changed away from text
+        if (activeTool !== "text") {
+            setTextInput(null);
+        }
+    }, [selectedId, activeTool, renderCanvas]);
 
     const undo = () => {
         if (historyStep <= 0) return;
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext("2d");
-        if (!ctx || !canvas) return;
-
         const prevStep = history[historyStep - 1];
-        const img = new Image();
-        img.onload = () => {
-            ctx.fillStyle = "#0a0a0a";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
-            setHistoryStep(historyStep - 1);
-        };
-        img.src = prevStep;
+        setShapes(prevStep.shapes);
+        setHistoryStep(historyStep - 1);
+
+        const offscreen = offscreenCanvasRef.current;
+        const offCtx = offscreen?.getContext("2d");
+        if (offCtx && offscreen) {
+            const img = new Image();
+            img.onload = () => {
+                offCtx.fillStyle = "#0a0a0a";
+                offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
+                offCtx.drawImage(img, 0, 0);
+                renderCanvas(prevStep.shapes);
+            };
+            img.src = prevStep.raster;
+        }
     };
 
     const redo = () => {
         if (historyStep >= history.length - 1) return;
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext("2d");
-        if (!ctx || !canvas) return;
-
         const nextStep = history[historyStep + 1];
-        const img = new Image();
-        img.onload = () => {
-            ctx.fillStyle = "#0a0a0a";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
-            setHistoryStep(historyStep + 1);
-        };
-        img.src = nextStep;
+        setShapes(nextStep.shapes);
+        setHistoryStep(historyStep + 1);
+
+        const offscreen = offscreenCanvasRef.current;
+        const offCtx = offscreen?.getContext("2d");
+        if (offCtx && offscreen) {
+            const img = new Image();
+            img.onload = () => {
+                offCtx.fillStyle = "#0a0a0a";
+                offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
+                offCtx.drawImage(img, 0, 0);
+                renderCanvas(nextStep.shapes);
+            };
+            img.src = nextStep.raster;
+        }
     };
 
-    const getCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
+    const getCoordinates = (e: React.MouseEvent | React.TouchEvent, shouldSnap = false) => {
         const canvas = canvasRef.current;
         if (!canvas) return { x: 0, y: 0 };
         const rect = canvas.getBoundingClientRect();
         const clientX = "touches" in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
         const clientY = "touches" in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
 
+        const x = (clientX - rect.left) / zoom;
+        const y = (clientY - rect.top) / zoom;
+
         return {
-            x: (clientX - rect.left) / zoom,
-            y: (clientY - rect.top) / zoom
+            x: shouldSnap ? snap(x) : x,
+            y: shouldSnap ? snap(y) : y
         };
     };
 
@@ -169,11 +281,38 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
         }
 
         const { x, y } = getCoordinates(e);
+        const snapped = getCoordinates(e, true);
         const ctx = canvasRef.current?.getContext("2d");
         if (!ctx) return;
 
+        if (activeTool === "select") {
+            const hit = [...shapes].reverse().find(s => {
+                if (s.type === "rect") {
+                    return x >= s.x && x <= s.x + (s.width || 0) && y >= s.y && y <= s.y + (s.height || 0);
+                } else if (s.type === "circle") {
+                    const dist = Math.sqrt((x - s.x) ** 2 + (y - s.y) ** 2);
+                    return dist <= (s.radius || 0);
+                }
+                return false;
+            });
+
+            if (hit) {
+                setSelectedId(hit.id);
+                setDragOffset({ x: x - hit.x, y: y - hit.y });
+                setIsDrawing(true);
+            } else {
+                setSelectedId(null);
+            }
+            return;
+        }
+
         if (activeTool === "text" || textInput?.open) {
-            if (!textInput?.open) setTextInput({ open: true, x, y, value: "" });
+            if (!textInput?.open) {
+                setTextInput({ open: true, x, y, value: "" });
+            } else {
+                // If clicking outside the input area while it's open, close it
+                setTextInput(null);
+            }
             return;
         }
 
@@ -185,13 +324,26 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
                     setPreviewImageData(ctx.getImageData(0, 0, canvas.width, canvas.height));
                 }
             }
-            setShapeStartPos({ x, y });
+            setShapeStartPos(snapped);
             setIsDrawing(true);
             return;
         }
 
         ctx.beginPath();
-        ctx.moveTo(x, y);
+        const startPos = (activeTool === "pencil" || activeTool === "eraser") ? { x, y } : snapped;
+        ctx.moveTo(startPos.x, startPos.y);
+
+        const offscreen = offscreenCanvasRef.current;
+        const offCtx = offscreen?.getContext("2d");
+        if (offCtx && (activeTool === "pencil" || activeTool === "eraser")) {
+            offCtx.beginPath();
+            offCtx.moveTo(startPos.x, startPos.y);
+            offCtx.strokeStyle = activeTool === "eraser" ? "#0a0a0a" : "white";
+            offCtx.lineWidth = activeTool === "eraser" ? brushSize * 5 : brushSize;
+            offCtx.lineCap = "round";
+            offCtx.lineJoin = "round";
+        }
+
         ctx.strokeStyle = activeTool === "eraser" ? "#0a0a0a" : "white";
         ctx.lineWidth = activeTool === "eraser" ? brushSize * 5 : brushSize;
         setIsDrawing(true);
@@ -208,10 +360,23 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
         }
 
         if (!isDrawing) return;
-        const { x, y } = getCoordinates(e);
+        const coords = getCoordinates(e);
+        const snapped = getCoordinates(e, true);
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext("2d");
         if (!ctx || !canvas) return;
+
+        if (activeTool === "select" && selectedId && dragOffset) {
+            const newShapes = shapes.map(s => {
+                if (s.id === selectedId) {
+                    return { ...s, x: snap(coords.x - dragOffset.x), y: snap(coords.y - dragOffset.y) };
+                }
+                return s;
+            });
+            setShapes(newShapes);
+            renderCanvas(newShapes);
+            return;
+        }
 
         if (activeTool === "shape" && shapeStartPos && previewImageData) {
             ctx.putImageData(previewImageData, 0, 0);
@@ -219,14 +384,14 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
             ctx.lineWidth = brushSize;
             ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
 
-            const width = x - shapeStartPos.x;
-            const height = y - shapeStartPos.y;
+            const width = snapped.x - shapeStartPos.x;
+            const height = snapped.y - shapeStartPos.y;
 
             if (selectedShape === "rect") {
                 ctx.strokeRect(shapeStartPos.x, shapeStartPos.y, width, height);
                 ctx.fillRect(shapeStartPos.x, shapeStartPos.y, width, height);
             } else if (selectedShape === "circle") {
-                const radius = Math.sqrt(width * width + height * height);
+                const radius = snap(Math.sqrt(width * width + height * height));
                 ctx.beginPath();
                 ctx.arc(shapeStartPos.x, shapeStartPos.y, radius, 0, Math.PI * 2);
                 ctx.stroke();
@@ -234,7 +399,7 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
             } else if (selectedShape === "line") {
                 ctx.beginPath();
                 ctx.moveTo(shapeStartPos.x, shapeStartPos.y);
-                ctx.lineTo(x, y);
+                ctx.lineTo(snapped.x, snapped.y);
                 ctx.stroke();
             }
             return;
@@ -242,20 +407,52 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
 
         if (activeTool === "shape") return;
 
-        ctx.lineTo(x, y);
+        ctx.lineTo(coords.x, coords.y);
         ctx.stroke();
+
+        const offscreen = offscreenCanvasRef.current;
+        const offCtx = offscreen?.getContext("2d");
+        if (offCtx && (activeTool === "pencil" || activeTool === "eraser")) {
+            offCtx.lineTo(coords.x, coords.y);
+            offCtx.stroke();
+        }
     };
 
-    const endAction = () => {
+    const endAction = (e: React.MouseEvent | React.TouchEvent) => {
         if (isPanning) {
             setIsPanning(false);
             return;
         }
         if (isDrawing) {
             setIsDrawing(false);
+
+            if (activeTool === "shape" && shapeStartPos) {
+                const snapped = getCoordinates(e, true);
+                const width = snapped.x - shapeStartPos.x;
+                const height = snapped.y - shapeStartPos.y;
+                const newShape: Shape = {
+                    id: Math.random().toString(36).substr(2, 9),
+                    type: selectedShape,
+                    x: shapeStartPos.x,
+                    y: shapeStartPos.y,
+                    width: selectedShape === "rect" ? width : undefined,
+                    height: selectedShape === "rect" ? height : undefined,
+                    radius: selectedShape === "circle" ? snap(Math.sqrt(width * width + height * height)) : undefined,
+                    x2: selectedShape === "line" ? snapped.x : undefined,
+                    y2: selectedShape === "line" ? snapped.y : undefined,
+                };
+                const updatedShapes = [...shapes, newShape];
+                setShapes(updatedShapes);
+                saveToHistory(updatedShapes);
+                renderCanvas(updatedShapes);
+            } else {
+                saveToHistory();
+                renderCanvas();
+            }
+
             setShapeStartPos(null);
             setPreviewImageData(null);
-            saveToHistory();
+            setDragOffset(null);
         }
     };
 
@@ -325,6 +522,7 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
             <div className="flex flex-1 relative overflow-hidden">
                 <aside className="absolute left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 p-2 glass rounded-2xl border border-white/10 z-20">
                     {[
+                        { id: "select", icon: MousePointer2, label: "Select", slider: false },
                         { id: "pencil", icon: Pencil, label: "Pencil", slider: true },
                         { id: "eraser", icon: Eraser, label: "Eraser", slider: true },
                         { id: "shape", icon: Shapes, label: "Shapes", slider: false },
@@ -343,6 +541,7 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
                                     } else {
                                         setActiveTool(tool.id as Tool);
                                         setShowSettings(false);
+                                        if (tool.id !== "select") setSelectedId(null);
                                     }
                                 }}
                                 className={cn(
@@ -418,28 +617,10 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
                     ))}
 
                     <div className="h-px bg-white/10 mx-2" />
-                    <button onClick={undo} className="p-3 text-white/40 hover:text-white/60 disabled:opacity-20 transition-all" disabled={historyStep <= 0}><Undo2 className="w-5 h-5" /></button>
-                    <button onClick={redo} className="p-3 text-white/40 hover:text-white/60 disabled:opacity-20 transition-all" disabled={historyStep >= history.length - 1}><Redo2 className="w-5 h-5" /></button>
-                    <div className="h-px bg-white/10 mx-2" />
-                    <button onClick={() => { if (confirm("Discard all changes?")) { const canvas = canvasRef.current; const ctx = canvas?.getContext("2d"); if (ctx && canvas) { ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, 0, canvas.width, canvas.height); setHistory([]); setHistoryStep(-1); } } }} className="p-3 text-red-400/40 hover:text-red-400 transition-all"><RotateCcw className="w-5 h-5" /></button>
-                    <div className="h-px bg-white/10 mx-2" />
-                    <div className="flex flex-col items-center gap-2 py-2 group/zoom relative">
-                        <span className="text-[8px] font-mono text-white/30 uppercase tracking-widest rotate-180 [writing-mode:vertical-lr]">Zoom</span>
-                        <input
-                            type="range"
-                            min="0.5"
-                            max="5"
-                            step="0.1"
-                            value={zoom}
-                            onChange={(e) => setZoom(parseFloat(e.target.value))}
-                            className="h-24 appearance-none bg-blue-500/10 rounded-full w-1 border border-white/5 hover:bg-blue-500/20 cursor-ns-resize [writing-mode:vertical-lr]"
-                        />
-                        <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="text-[9px] font-bold text-white/40 hover:text-white transition-colors">100%</button>
-                    </div>
                 </aside>
 
                 <main onWheel={handleWheel} className="flex-1 flex items-center justify-center p-12 overflow-hidden bg-[radial-gradient(#ffffff05_1px,transparent_1px)] [background-size:20px_20px]">
-                    <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }} className="shadow-[0_0_100px_rgba(255,255,255,0.05)] border border-white/10 rounded-lg overflow-hidden shrink-0 origin-center relative">
+                    <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }} className="shadow-[0_0_100px_rgba(255,255,255,0.05)] border border-white/10 rounded-lg shrink-0 origin-center relative">
                         <canvas
                             ref={canvasRef}
                             onMouseDown={startAction}
@@ -451,6 +632,42 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
                             onTouchEnd={endAction}
                             className="bg-[#0a0a0a] touch-none cursor-crosshair block"
                         />
+
+                        {/* Contextual Delete Button */}
+                        {selectedId && shapes.find(s => s.id === selectedId) && (() => {
+                            const s = shapes.find(shape => shape.id === selectedId)!;
+                            let bx = s.x, by = s.y, bw = s.width || 0, bh = s.height || 0;
+
+                            if (s.type === "circle" && s.radius) {
+                                bx = s.x - s.radius;
+                                by = s.y - s.radius;
+                                bw = s.radius * 2;
+                                bh = s.radius * 2;
+                            } else if (s.type === "line" && s.x2 !== undefined && s.y2 !== undefined) {
+                                bx = Math.min(s.x, s.x2);
+                                by = Math.min(s.y, s.y2);
+                                bw = Math.abs(s.x2 - s.x);
+                                bh = Math.abs(s.y2 - s.y);
+                            }
+
+                            return (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteSelected();
+                                    }}
+                                    className="absolute z-[120] p-1.5 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 transition-all hover:scale-110 active:scale-95 animate-in zoom-in-50 fade-in duration-200"
+                                    style={{
+                                        left: bx + bw + 8,
+                                        top: by - 8,
+                                        transform: 'translate(-50%, -50%)'
+                                    }}
+                                    title="Delete Shape"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            );
+                        })()}
                         <div
                             className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize z-50 flex items-center justify-center group/resize"
                             onMouseDown={(e) => {
@@ -515,6 +732,33 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
                         )}
                     </div>
                 </main>
+
+                <aside className="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 p-2 glass rounded-2xl border border-white/10 z-20">
+                    <button onClick={undo} className="p-3 text-white/40 hover:text-white/60 disabled:opacity-20 transition-all" disabled={historyStep <= 0} title="Undo (Ctrl+Z)"><Undo2 className="w-5 h-5" /></button>
+                    <button onClick={redo} className="p-3 text-white/40 hover:text-white/60 disabled:opacity-20 transition-all" disabled={historyStep >= history.length - 1} title="Redo (Ctrl+Y)"><Redo2 className="w-5 h-5" /></button>
+                    <div className="h-px bg-white/10 mx-2" />
+                    <button
+                        onClick={() => { if (confirm("Discard all changes?")) { const canvas = canvasRef.current; const ctx = canvas?.getContext("2d"); const offscreen = offscreenCanvasRef.current; const offCtx = offscreen?.getContext("2d"); if (ctx && canvas && offCtx && offscreen) { ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, 0, canvas.width, canvas.height); offCtx.fillStyle = "#0a0a0a"; offCtx.fillRect(0, 0, offscreen.width, offscreen.height); setHistory([]); setHistoryStep(-1); setShapes([]); setSelectedId(null); } } }}
+                        className="p-3 text-red-400/40 hover:text-red-400 transition-all"
+                        title="Discard All Changes"
+                    >
+                        <RotateCcw className="w-5 h-5" />
+                    </button>
+                    <div className="h-px bg-white/10 mx-2" />
+                    <div className="flex flex-col items-center gap-2 py-2 group/zoom relative">
+                        <span className="text-[8px] font-mono text-white/30 uppercase tracking-widest rotate-180 [writing-mode:vertical-lr]">Zoom</span>
+                        <input
+                            type="range"
+                            min="0.5"
+                            max="5"
+                            step="0.1"
+                            value={zoom}
+                            onChange={(e) => setZoom(parseFloat(e.target.value))}
+                            className="h-24 appearance-none bg-blue-500/10 rounded-full w-1 border border-white/5 hover:bg-blue-500/20 cursor-ns-resize [writing-mode:vertical-lr]"
+                        />
+                        <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="text-[9px] font-bold text-white/40 hover:text-white transition-colors">100%</button>
+                    </div>
+                </aside>
             </div>
         </div>
     );
