@@ -29,9 +29,28 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
     const [activeTool, setActiveTool] = useState<Tool>("pencil");
     const [orientation, setOrientation] = useState<Orientation>("desktop");
     const [zoom, setZoom] = useState(1);
+    const [pan, setPan] = useState({ x: 0, y: 0 });
     const [isDrawing, setIsDrawing] = useState(false);
+    const [isPanning, setIsPanning] = useState(false);
+    const [isSpacePressed, setIsSpacePressed] = useState(false);
     const [history, setHistory] = useState<string[]>([]);
     const [historyStep, setHistoryStep] = useState(-1);
+
+    // Handle keyboard for panning
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.code === "Space") setIsSpacePressed(true);
+        };
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.code === "Space") setIsSpacePressed(false);
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        window.addEventListener("keyup", handleKeyUp);
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown);
+            window.removeEventListener("keyup", handleKeyUp);
+        };
+    }, []);
 
     // Initialize and handle orientation
     useEffect(() => {
@@ -126,10 +145,21 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
         const rect = canvas.getBoundingClientRect();
         const clientX = "touches" in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
         const clientY = "touches" in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-        return { x: clientX - rect.left, y: clientY - rect.top };
+
+        // Scale-aware coordinates
+        return {
+            x: (clientX - rect.left) / zoom,
+            y: (clientY - rect.top) / zoom
+        };
     };
 
+
     const startAction = (e: React.MouseEvent | React.TouchEvent) => {
+        if (isSpacePressed || (e as React.MouseEvent).button === 1) { // Middle mouse button
+            setIsPanning(true);
+            return;
+        }
+
         const { x, y } = getCoordinates(e);
         const ctx = canvasRef.current?.getContext("2d");
         if (!ctx) return;
@@ -152,6 +182,15 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
     };
 
     const moveAction = (e: React.MouseEvent | React.TouchEvent) => {
+        if (isPanning) {
+            const mouseEvent = e as React.MouseEvent;
+            setPan(prev => ({
+                x: prev.x + mouseEvent.movementX,
+                y: prev.y + mouseEvent.movementY
+            }));
+            return;
+        }
+
         if (!isDrawing) return;
         const { x, y } = getCoordinates(e);
         const ctx = canvasRef.current?.getContext("2d");
@@ -162,9 +201,27 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
     };
 
     const endAction = () => {
+        if (isPanning) {
+            setIsPanning(false);
+            return;
+        }
         if (isDrawing) {
             setIsDrawing(false);
             saveToHistory();
+        }
+    };
+
+    const handleWheel = (e: React.WheelEvent) => {
+        e.preventDefault(); // Prevent page scrolling
+        if (e.ctrlKey || e.metaKey) { // Zoom with Ctrl/Cmd + scroll
+            const delta = -e.deltaY;
+            const factor = delta > 0 ? 1.1 : 0.9;
+            setZoom(prev => Math.min(Math.max(prev * factor, 0.5), 5));
+        } else { // Pan with scroll
+            setPan(prev => ({
+                x: prev.x - e.deltaX,
+                y: prev.y - e.deltaY
+            }));
         }
     };
 
@@ -245,22 +302,33 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
                         <input
                             type="range"
                             min="0.5"
-                            max="2"
+                            max="5"
                             step="0.1"
                             value={zoom}
                             onChange={(e) => setZoom(parseFloat(e.target.value))}
                             className="h-24 appearance-none bg-blue-500/10 rounded-full w-1 border border-white/5 hover:bg-blue-500/20 cursor-ns-resize [writing-mode:vertical-lr] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(59,130,246,0.5)]"
                         />
-                        <span className="text-[10px] font-mono text-white/40">{Math.round(zoom * 100)}%</span>
+                        <button
+                            onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
+                            className="text-[9px] font-bold text-white/40 hover:text-white transition-colors"
+                        >
+                            100%
+                        </button>
                     </div>
                 </aside>
 
+
                 {/* Canvas Area */}
-                <main className="flex-1 flex items-center justify-center p-12 overflow-auto bg-[radial-gradient(#ffffff05_1px,transparent_1px)] [background-size:20px_20px]">
+                <main
+                    onWheel={handleWheel}
+                    className="flex-1 flex items-center justify-center p-12 overflow-hidden bg-[radial-gradient(#ffffff05_1px,transparent_1px)] [background-size:20px_20px] cursor-grab active:cursor-grabbing"
+                >
                     <div
-                        style={{ transform: `scale(${zoom})` }}
+                        style={{
+                            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                        }}
                         className={cn(
-                            "transition-transform duration-200 shadow-[0_0_100px_rgba(255,255,255,0.02)] border border-white/10 rounded-lg overflow-hidden shrink-0",
+                            "transition-transform duration-75 shadow-[0_0_100px_rgba(255,255,255,0.02)] border border-white/10 rounded-lg overflow-hidden shrink-0 origin-center",
                             orientation === "desktop" ? "aspect-video" : "aspect-[9/16]"
                         )}
                     >
