@@ -2,12 +2,12 @@
 
 import { getGeminiModel } from "@/lib/gemini";
 
-export async function processImageToCode(base64Image: string, framework: string = "vanilla") {
+export async function processImageToCode(base64Image: string, framework: string = "vanilla", styling: string = "tailwind") {
     if (!process.env.GEMINI_API_KEY) {
         throw new Error("GEMINI_API_KEY is not set");
     }
 
-    const model = getGeminiModel(framework);
+    const model = getGeminiModel(framework, styling);
 
     // Remove data URL prefix if present
     const base64Data = base64Image.split(",")[1] || base64Image;

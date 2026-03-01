@@ -16,6 +16,7 @@ function HomeContent() {
   const [error, setError] = useState<string | null>(null);
   const [inputMode, setInputMode] = useState<"upload" | "draw">("upload");
   const [framework, setFramework] = useState("vanilla");
+  const [styling, setStyling] = useState("tailwind");
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -34,7 +35,7 @@ function HomeContent() {
     setLoading(true);
     setError(null);
     try {
-      const result = await processImageToCode(base64, framework);
+      const result = await processImageToCode(base64, framework, styling);
       setCode(result.code);
     } catch (err: any) {
       if (err.message === "API_RATE_LIMIT") {
@@ -149,6 +150,28 @@ function HomeContent() {
               </div>
             </div>
 
+            {/* Styling Selector */}
+            <div className="space-y-3">
+              <h3 className="text-[10px] uppercase font-bold tracking-widest text-white/30 px-1">Styling Engine</h3>
+              <div className="flex p-1 bg-black/40 rounded-xl border border-white/5">
+                {[
+                  { id: "tailwind", label: "Tailwind CSS" },
+                  { id: "vanilla-css", label: "Vanilla CSS" },
+                ].map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => { setStyling(s.id); setCode(""); }}
+                    className={cn(
+                      "flex-1 flex items-center justify-center py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
+                      styling === s.id ? "bg-white/10 text-white shadow-lg" : "text-white/40 hover:text-white/60"
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="min-h-[320px]">
               {inputMode === "upload" ? (
                 <Dropzone onImageUpload={handleProcess} className="w-full" />
@@ -168,9 +191,9 @@ function HomeContent() {
               <ul className="space-y-3">
                 {[
                   inputMode === "upload" ? "Clear high-contrast sketches work best" : "Draw clearly with visible boundaries",
-                  `Output will be optimized for ${framework.toUpperCase()}`,
+                  `Output: ${framework.toUpperCase()} + ${styling.toUpperCase()}`,
                   "Vision engine understands layout hierarchy",
-                  "Standard Tailwind classes will be used"
+                  styling === "tailwind" ? "Standard Tailwind classes will be used" : "Atomic CSS or BEM methodology"
                 ].map((text, i) => (
                   <li key={i} className="flex items-start gap-2 text-[11px] text-white/50 leading-relaxed italic">
                     <div className="w-1 h-1 rounded-full bg-blue-500/40 mt-1.5" />
@@ -186,7 +209,8 @@ function HomeContent() {
               // SESSION_ID: {Math.random().toString(36).substring(7).toUpperCase()}<br />
               // STATUS: WAITING_FOR_PAYLOAD...<br />
               // ENGINE: GEMINI_FLASH_LATEST<br />
-              // FRAMEWORK: {framework.toUpperCase()}
+              // FRAMEWORK: {framework.toUpperCase()}<br />
+              // STYLING: {styling.toUpperCase()}
             </p>
           </div>
         </div>
@@ -194,7 +218,7 @@ function HomeContent() {
 
         {/* Main Content / Preview */}
         <div className="lg:col-span-8 flex flex-col h-full">
-          <Preview code={code} loading={loading} framework={framework} />
+          <Preview code={code} loading={loading} framework={framework} styling={styling} />
         </div>
       </div>
 

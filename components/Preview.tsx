@@ -8,16 +8,24 @@ interface PreviewProps {
     code: string;
     loading?: boolean;
     framework?: string;
+    styling?: string;
 }
 
-export function Preview({ code, loading, framework = "vanilla" }: PreviewProps) {
+export function Preview({ code, loading, framework = "vanilla", styling = "tailwind" }: PreviewProps) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [view, setView] = React.useState<"preview" | "code">("preview");
+    const [codeTab, setCodeTab] = React.useState<"html" | "css">("html");
     const [copied, setCopied] = React.useState(false);
 
+    const isVanillaCSS = styling === "vanilla-css";
+    const parts = code.split("/* CSS_START */");
+    const htmlCode = isVanillaCSS ? (parts[0] || "").trim() : code;
+    const cssCode = isVanillaCSS ? (parts[1] || "").trim() : "";
+
     const copyToClipboard = async () => {
+        const textToCopy = view === "code" && codeTab === "css" ? cssCode : htmlCode;
         try {
-            await navigator.clipboard.writeText(code);
+            await navigator.clipboard.writeText(textToCopy);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch (err) {
@@ -30,22 +38,37 @@ export function Preview({ code, loading, framework = "vanilla" }: PreviewProps) 
             const doc = iframeRef.current.contentDocument;
             if (!doc) return;
 
+            const tailwindScript = styling === "tailwind" ? '<script src="https://cdn.tailwindcss.com"></script>' : "";
+            const internalStyle = isVanillaCSS ? `<style>${cssCode}</style>` : "";
+
             const html = `
         <!DOCTYPE html>
         <html>
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <script src="https://cdn.tailwindcss.com"></script>
+            ${tailwindScript}
+            ${internalStyle}
             <style>
               body { margin: 0; background: transparent; }
               ::-webkit-scrollbar { width: 8px; }
               ::-webkit-scrollbar-track { background: transparent; }
               ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+              
+              .placeholder-state {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                color: rgba(255, 255, 255, 0.2);
+                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                font-size: 14px;
+                letter-spacing: 0.05em;
+              }
             </style>
           </head>
           <body class="bg-transparent text-white">
-            ${code || '<div class="flex items-center justify-center h-screen text-white/20 font-mono">Waiting for sketch...</div>'}
+            ${htmlCode || '<div class="placeholder-state uppercase tracking-widest font-mono">Waiting for sketch...</div>'}
           </body>
         </html>
       `;
@@ -54,7 +77,7 @@ export function Preview({ code, loading, framework = "vanilla" }: PreviewProps) 
             doc.write(html);
             doc.close();
         }
-    }, [code, view, framework]);
+    }, [code, view, framework, styling, htmlCode, cssCode]);
 
     return (
         <div className="flex flex-col h-full glass rounded-2xl overflow-hidden border border-white/10 shadow-emerald-500/10 shadow-2xl">
@@ -68,27 +91,52 @@ export function Preview({ code, loading, framework = "vanilla" }: PreviewProps) 
                     <span className="ml-2 text-xs font-mono text-white/40 uppercase tracking-widest">Live Output</span>
                 </div>
 
-                <div className="flex bg-black/40 rounded-lg p-0.5 border border-white/5">
-                    <button
-                        onClick={() => setView("preview")}
-                        className={cn(
-                            "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs transition-all",
-                            view === "preview" ? "bg-white/10 text-white" : "text-white/40 hover:text-white/60"
-                        )}
-                    >
-                        <Eye className="w-3.5 h-3.5" />
-                        Preview
-                    </button>
-                    <button
-                        onClick={() => setView("code")}
-                        className={cn(
-                            "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs transition-all",
-                            view === "code" ? "bg-white/10 text-white" : "text-white/40 hover:text-white/60"
-                        )}
-                    >
-                        <Code className="w-3.5 h-3.5" />
-                        Code
-                    </button>
+                <div className="flex items-center gap-4">
+                    {view === "code" && isVanillaCSS && (
+                        <div className="flex bg-white/5 rounded-lg p-0.5 border border-white/5">
+                            <button
+                                onClick={() => setCodeTab("html")}
+                                className={cn(
+                                    "px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all",
+                                    codeTab === "html" ? "bg-white/10 text-white" : "text-white/30 hover:text-white/50"
+                                )}
+                            >
+                                HTML
+                            </button>
+                            <button
+                                onClick={() => setCodeTab("css")}
+                                className={cn(
+                                    "px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all",
+                                    codeTab === "css" ? "bg-white/10 text-white" : "text-white/30 hover:text-white/50"
+                                )}
+                            >
+                                CSS
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="flex bg-black/40 rounded-lg p-0.5 border border-white/5">
+                        <button
+                            onClick={() => setView("preview")}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs transition-all",
+                                view === "preview" ? "bg-white/10 text-white" : "text-white/40 hover:text-white/60"
+                            )}
+                        >
+                            <Eye className="w-3.5 h-3.5" />
+                            Preview
+                        </button>
+                        <button
+                            onClick={() => setView("code")}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs transition-all",
+                                view === "code" ? "bg-white/10 text-white" : "text-white/40 hover:text-white/60"
+                            )}
+                        >
+                            <Code className="w-3.5 h-3.5" />
+                            Code
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -97,7 +145,9 @@ export function Preview({ code, loading, framework = "vanilla" }: PreviewProps) 
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 backdrop-blur-sm">
                         <div className="flex flex-col items-center gap-3">
                             <div className="w-8 h-8 border-2 border-blue-500/50 border-t-blue-500 rounded-full animate-spin" />
-                            <span className="text-xs font-mono text-blue-400/80 animate-pulse">GENERATING {framework.toUpperCase()} CODE...</span>
+                            <span className="text-xs font-mono text-blue-400/80 animate-pulse">
+                                GENERATING {framework.toUpperCase()} ({styling.split('-')[0].toUpperCase()}) CODE...
+                            </span>
                         </div>
                     </div>
                 )}
@@ -132,7 +182,7 @@ export function Preview({ code, loading, framework = "vanilla" }: PreviewProps) 
                             {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                         </button>
                         <pre className="p-4 text-xs font-mono text-blue-300 overflow-auto h-full selection:bg-blue-500/30">
-                            {code || "<!-- No code generated yet -->"}
+                            {view === "code" && codeTab === "css" ? (cssCode || "/* No CSS generated */") : (htmlCode || "<!-- No code generated yet -->")}
                         </pre>
                     </div>
                 )}
