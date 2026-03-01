@@ -15,6 +15,7 @@ function HomeContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inputMode, setInputMode] = useState<"upload" | "draw">("upload");
+  const [framework, setFramework] = useState("vanilla");
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -33,7 +34,7 @@ function HomeContent() {
     setLoading(true);
     setError(null);
     try {
-      const result = await processImageToCode(base64);
+      const result = await processImageToCode(base64, framework);
       setCode(result.code);
     } catch (err: any) {
       if (err.message === "API_RATE_LIMIT") {
@@ -122,6 +123,32 @@ function HomeContent() {
               </button>
             </div>
 
+            {/* Framework Selector */}
+            <div className="space-y-3">
+              <h3 className="text-[10px] uppercase font-bold tracking-widest text-white/30 px-1">Target Framework</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: "vanilla", label: "Vanilla" },
+                  { id: "react", label: "React" },
+                  { id: "nextjs", label: "Next.js" },
+                  { id: "vue", label: "Vue" },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => { setFramework(f.id); setCode(""); }}
+                    className={cn(
+                      "flex items-center justify-center py-2 px-3 rounded-xl text-[10px] font-bold uppercase tracking-wider border transition-all",
+                      framework === f.id
+                        ? "bg-blue-600/20 border-blue-500/50 text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.15)]"
+                        : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
+                    )}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="min-h-[320px]">
               {inputMode === "upload" ? (
                 <Dropzone onImageUpload={handleProcess} className="w-full" />
@@ -141,7 +168,7 @@ function HomeContent() {
               <ul className="space-y-3">
                 {[
                   inputMode === "upload" ? "Clear high-contrast sketches work best" : "Draw clearly with visible boundaries",
-                  "Label components (e.g., 'Button', 'Hero')",
+                  `Output will be optimized for ${framework.toUpperCase()}`,
                   "Vision engine understands layout hierarchy",
                   "Standard Tailwind classes will be used"
                 ].map((text, i) => (
@@ -158,7 +185,8 @@ function HomeContent() {
             <p className="text-[10px] text-white/30 leading-relaxed font-mono">
               // SESSION_ID: {Math.random().toString(36).substring(7).toUpperCase()}<br />
               // STATUS: WAITING_FOR_PAYLOAD...<br />
-              // ENGINE: GEMINI_FLASH_LATEST
+              // ENGINE: GEMINI_FLASH_LATEST<br />
+              // FRAMEWORK: {framework.toUpperCase()}
             </p>
           </div>
         </div>
@@ -166,7 +194,7 @@ function HomeContent() {
 
         {/* Main Content / Preview */}
         <div className="lg:col-span-8 flex flex-col h-full">
-          <Preview code={code} loading={loading} />
+          <Preview code={code} loading={loading} framework={framework} />
         </div>
       </div>
 

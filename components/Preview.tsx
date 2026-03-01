@@ -7,9 +7,10 @@ import { cn } from "@/lib/utils";
 interface PreviewProps {
     code: string;
     loading?: boolean;
+    framework?: string;
 }
 
-export function Preview({ code, loading }: PreviewProps) {
+export function Preview({ code, loading, framework = "vanilla" }: PreviewProps) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [view, setView] = React.useState<"preview" | "code">("preview");
     const [copied, setCopied] = React.useState(false);
@@ -25,7 +26,7 @@ export function Preview({ code, loading }: PreviewProps) {
     };
 
     useEffect(() => {
-        if (view === "preview" && iframeRef.current) {
+        if (view === "preview" && framework === "vanilla" && iframeRef.current) {
             const doc = iframeRef.current.contentDocument;
             if (!doc) return;
 
@@ -53,7 +54,7 @@ export function Preview({ code, loading }: PreviewProps) {
             doc.write(html);
             doc.close();
         }
-    }, [code, view]);
+    }, [code, view, framework]);
 
     return (
         <div className="flex flex-col h-full glass rounded-2xl overflow-hidden border border-white/10 shadow-emerald-500/10 shadow-2xl">
@@ -96,13 +97,32 @@ export function Preview({ code, loading }: PreviewProps) {
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 backdrop-blur-sm">
                         <div className="flex flex-col items-center gap-3">
                             <div className="w-8 h-8 border-2 border-blue-500/50 border-t-blue-500 rounded-full animate-spin" />
-                            <span className="text-xs font-mono text-blue-400/80 animate-pulse">GENERATING WEIGHTLESS CODE...</span>
+                            <span className="text-xs font-mono text-blue-400/80 animate-pulse">GENERATING {framework.toUpperCase()} CODE...</span>
                         </div>
                     </div>
                 )}
 
                 {view === "preview" ? (
-                    <iframe ref={iframeRef} title="Preview" className="w-full h-full border-none" />
+                    framework === "vanilla" ? (
+                        <iframe ref={iframeRef} title="Preview" className="w-full h-full border-none" />
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-full gap-4 p-8 text-center">
+                            <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-2">
+                                <Code className="w-8 h-8 text-white/20" />
+                            </div>
+                            <h3 className="text-sm font-medium text-white/80">Preview Not Available</h3>
+                            <p className="text-xs text-white/40 max-w-[240px] leading-relaxed">
+                                Live previews are not supported for <span className="text-blue-400 font-mono">{framework}</span> components.
+                                Switch to the <span className="text-white/60">Code</span> tab to view and copy the output.
+                            </p>
+                            <button
+                                onClick={() => setView("code")}
+                                className="mt-4 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 text-[10px] font-bold uppercase tracking-widest text-white/60 transition-all"
+                            >
+                                View Source Code
+                            </button>
+                        </div>
+                    )
                 ) : (
                     <div className="relative h-full">
                         <button

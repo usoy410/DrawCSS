@@ -5,6 +5,7 @@ import { StudioCanvas } from "@/components/StudioCanvas";
 import { Preview } from "@/components/Preview";
 import { processImageToCode } from "../actions";
 import { X, ExternalLink } from "lucide-react";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 export default function DrawPage() {
@@ -12,12 +13,13 @@ export default function DrawPage() {
     const [loading, setLoading] = useState(false);
     const [showPreview, setShowPreview] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [framework, setFramework] = useState("vanilla");
 
     const handleGenerate = async (base64: string) => {
         setLoading(true);
         setError(null);
         try {
-            const result = await processImageToCode(base64);
+            const result = await processImageToCode(base64, framework);
             setCode(result.code);
             setShowPreview(true);
         } catch (err: any) {
@@ -31,6 +33,32 @@ export default function DrawPage() {
         <div className="relative h-screen bg-black">
             <StudioCanvas onSubmit={handleGenerate} loading={loading} />
 
+            {/* Framework Selector Overlay */}
+            <div className="absolute top-24 left-6 z-30 flex flex-col gap-3 p-4 glass rounded-2xl border border-white/10 animate-in fade-in slide-in-from-left-4 duration-500">
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/40">Output Framework</h3>
+                <div className="flex flex-col gap-2">
+                    {[
+                        { id: "vanilla", label: "Vanilla" },
+                        { id: "react", label: "React" },
+                        { id: "nextjs", label: "Next.js" },
+                        { id: "vue", label: "Vue" },
+                    ].map((f) => (
+                        <button
+                            key={f.id}
+                            onClick={() => { setFramework(f.id); setCode(""); }}
+                            className={cn(
+                                "px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider border transition-all text-left",
+                                framework === f.id
+                                    ? "bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]"
+                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
+                            )}
+                        >
+                            {f.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             {/* Preview Overlay */}
             {showPreview && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center p-4 md:p-12 animate-in fade-in zoom-in duration-300">
@@ -41,7 +69,7 @@ export default function DrawPage() {
                             <div className="flex items-center gap-4">
                                 <h2 className="text-sm font-bold uppercase tracking-widest text-white/60">Vision Output</h2>
                                 <div className="h-4 w-px bg-white/10" />
-                                <span className="text-[10px] text-emerald-400 font-mono animate-pulse uppercase tracking-wider">Production Content Ready</span>
+                                <span className="text-[10px] text-emerald-400 font-mono animate-pulse uppercase tracking-wider">{framework.toUpperCase()} CONTENT READY</span>
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -62,7 +90,7 @@ export default function DrawPage() {
                         </div>
 
                         <div className="flex-1 overflow-hidden">
-                            <Preview code={code} loading={false} />
+                            <Preview code={code} loading={false} framework={framework} />
                         </div>
                     </div>
                 </div>
