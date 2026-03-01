@@ -6,11 +6,14 @@ import { Dropzone } from "@/components/Dropzone";
 import { Canvas } from "@/components/Canvas";
 import { Preview } from "@/components/Preview";
 import { processImageToCode } from "./actions";
-import { Sparkles, Zap, Shield, Cpu, Upload, Pencil, Maximize2 } from "lucide-react";
+import { Sparkles, Zap, Shield, Cpu, Upload, Pencil, Maximize2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { SignInButton, SignOutButton, UserButton, useUser, SignedIn, SignedOut, useClerk } from "@clerk/nextjs";
 
 function HomeContent() {
+  const { user, isLoaded } = useUser();
+  const { openSignIn } = useClerk();
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,11 +35,25 @@ function HomeContent() {
       return;
     }
 
+    // Feature Gating: Limit all users to 3 generations per session/day
+    // For now, tracking combined count in localStorage for simplicity
+    const currentGens = parseInt(localStorage.getItem("drawcss_usage_count") || "0");
+    if (currentGens >= 3) {
+      setError("Daily limit reached (3/3). Please come back tomorrow!");
+      if (!user) {
+        openSignIn();
+      }
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const result = await processImageToCode(base64, framework, styling);
       setCode(result.code);
+
+      // Increment global counter
+      localStorage.setItem("drawcss_usage_count", (currentGens + 1).toString());
     } catch (err: any) {
       if (err.message === "API_RATE_LIMIT") {
         setError("Gemini API rate limit reached (Free Tier). Retrying in 30s... Please wait.");
@@ -77,7 +94,31 @@ function HomeContent() {
             ))}
           </div>
           <div className="h-4 w-px bg-white/10 mx-2" />
-          <span className="text-[10px] uppercase font-mono tracking-[0.2em] text-white/30">Flash Stable Engine Active</span>
+          <div className="flex items-center gap-4">
+            <SignedOut>
+              <SignInButton mode="modal">
+                <button className="text-[10px] uppercase font-mono tracking-[0.2em] text-white/30 hover:text-white/60 transition-colors">
+                  Sign In
+                </button>
+              </SignInButton>
+            </SignedOut>
+            <SignedIn>
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col items-end gap-0.5">
+                  <span className="text-[10px] uppercase font-mono tracking-[0.2em] text-white/30">
+                    {user?.firstName || "User"}
+                  </span>
+                </div>
+                <UserButton
+                  appearance={{
+                    elements: {
+                      userButtonAvatarBox: "w-8 h-8 border border-white/10 shadow-lg"
+                    }
+                  }}
+                />
+              </div>
+            </SignedIn>
+          </div>
         </div>
       </div>
 
@@ -203,6 +244,7 @@ function HomeContent() {
               </ul>
             </div>
           </div>
+
 
           <div className="glass rounded-2xl p-4 border border-white/5 bg-gradient-to-br from-blue-500/5 to-transparent">
             <p className="text-[10px] text-white/30 leading-relaxed font-mono">
