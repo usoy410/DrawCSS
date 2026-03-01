@@ -63,6 +63,7 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
     const [isShapeModalOpen, setIsShapeModalOpen] = useState(false);
     const [shapeStartPos, setShapeStartPos] = useState<{ x: number, y: number } | null>(null);
     const [previewImageData, setPreviewImageData] = useState<ImageData | null>(null);
+    const [showDiscardModal, setShowDiscardModal] = useState(false);
 
     const [shapes, setShapes] = useState<Shape[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -255,6 +256,24 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
                 renderCanvas(nextStep.shapes);
             };
             img.src = nextStep.raster;
+        }
+    };
+
+    const discardAllChanges = () => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext("2d");
+        const offscreen = offscreenCanvasRef.current;
+        const offCtx = offscreen?.getContext("2d");
+        if (ctx && canvas && offCtx && offscreen) {
+            ctx.fillStyle = "#0a0a0a";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            offCtx.fillStyle = "#0a0a0a";
+            offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
+            setHistory([]);
+            setHistoryStep(-1);
+            setShapes([]);
+            setSelectedId(null);
+            setShowDiscardModal(false);
         }
     };
 
@@ -738,7 +757,7 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
                     <button onClick={redo} className="p-3 text-white/40 hover:text-white/60 disabled:opacity-20 transition-all" disabled={historyStep >= history.length - 1} title="Redo (Ctrl+Y)"><Redo2 className="w-5 h-5" /></button>
                     <div className="h-px bg-white/10 mx-2" />
                     <button
-                        onClick={() => { if (confirm("Discard all changes?")) { const canvas = canvasRef.current; const ctx = canvas?.getContext("2d"); const offscreen = offscreenCanvasRef.current; const offCtx = offscreen?.getContext("2d"); if (ctx && canvas && offCtx && offscreen) { ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, 0, canvas.width, canvas.height); offCtx.fillStyle = "#0a0a0a"; offCtx.fillRect(0, 0, offscreen.width, offscreen.height); setHistory([]); setHistoryStep(-1); setShapes([]); setSelectedId(null); } } }}
+                        onClick={() => setShowDiscardModal(true)}
                         className="p-3 text-red-400/40 hover:text-red-400 transition-all"
                         title="Discard All Changes"
                     >
@@ -760,6 +779,39 @@ export function StudioCanvas({ onSubmit, loading }: StudioCanvasProps) {
                     </div>
                 </aside>
             </div>
+            {/* Discard Confirmation Modal */}
+            {showDiscardModal && (
+                <div className="absolute inset-0 z-[200] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowDiscardModal(false)} />
+                    <div className="relative w-full max-w-sm glass-card p-8 border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200">
+                        <div className="flex flex-col items-center text-center gap-6">
+                            <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                                <RotateCcw className="w-8 h-8 text-red-400" />
+                            </div>
+                            <div className="space-y-2">
+                                <h2 className="text-xl font-bold text-white tracking-tight">Discard All Changes?</h2>
+                                <p className="text-xs text-white/40 leading-relaxed">
+                                    All your progress in this session will be permanently erased. This action cannot be undone.
+                                </p>
+                            </div>
+                            <div className="flex gap-3 w-full">
+                                <button
+                                    onClick={() => setShowDiscardModal(false)}
+                                    className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={discardAllChanges}
+                                    className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest shadow-lg shadow-red-500/20 transition-all"
+                                >
+                                    Discard
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
